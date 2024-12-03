@@ -7,11 +7,73 @@ import { BiArchiveIn } from "react-icons/bi"
 import { TbFileUpload } from "react-icons/tb"
 import { v4 as uuidV4 } from "uuid"
 import { toast } from "react-hot-toast"
+import { useRef } from 'react'
 
 function FilesView() {
     const { downloadFilesAndFolders, updateDirectory } = useFileSystem()
     const { viewHeight } = useResponsive()
     const { minHeightReached } = useResponsive()
+    const fileInputRef = useRef<HTMLInputElement>(null)
+
+    const handleFallbackFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const files = event.target.files
+        if (!files) return
+
+        toast.loading("Getting files and folders...")
+        const structure: FileSystemItem[] = []
+        const directoryMap = new Map<string, FileSystemItem>()
+
+        for (let i = 0; i < files.length; i++) {
+            const file = files[i]
+            const pathParts = file.webkitRelativePath.split('/')
+            const fileName = pathParts.pop()! // Last part is the file name
+            let currentPath = ''
+
+            // Create or get directories in the path
+            for (const part of pathParts) {
+                const parentPath = currentPath
+                currentPath = currentPath ? `${currentPath}/${part}` : part
+
+                if (!directoryMap.has(currentPath)) {
+                    const newDir: FileSystemItem = {
+                        id: uuidV4(),
+                        name: part,
+                        type: 'directory',
+                        children: [],
+                        isOpen: false
+                    }
+                    directoryMap.set(currentPath, newDir)
+
+                    // Add to parent or root structure
+                    if (parentPath) {
+                        const parentDir = directoryMap.get(parentPath)
+                        parentDir?.children?.push(newDir)
+                    } else {
+                        structure.push(newDir)
+                    }
+                }
+            }
+
+            // Create and add the file
+            const content = await file.text()
+            const newFile: FileSystemItem = {
+                id: uuidV4(),
+                name: fileName,
+                type: 'file',
+                content
+            }
+
+            // Add file to its parent directory or root
+            if (pathParts.length > 0) {
+                const parentDir = directoryMap.get(currentPath)
+                parentDir?.children?.push(newFile)
+            } else {
+                structure.push(newFile)
+            }
+        }
+
+        updateDirectory("", structure)
+    }
 
     const handleOpenDirectory = async () => {
         if ("showDirectoryPicker" in window) {
@@ -24,9 +86,8 @@ function FilesView() {
                 console.error("Error opening directory:", error)
             }
         } else {
-            alert(
-                "The File System Access API is not supported in this browser.",
-            )
+            // Fallback to traditional file input
+            fileInputRef.current?.click()
         }
     }
 
@@ -67,6 +128,15 @@ function FilesView() {
             className="flex select-none flex-col gap-1 px-4 py-2"
             style={{ height: viewHeight, maxHeight: viewHeight }}
         >
+            <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFallbackFileUpload}
+                multiple
+                webkitdirectory=""
+                directory=""
+                className="hidden"
+            />
             <FileStructureView />
             <div
                 className={cn(`flex min-h-fit flex-col justify-end pt-2`, {
